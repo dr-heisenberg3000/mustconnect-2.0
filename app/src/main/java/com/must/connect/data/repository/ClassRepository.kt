@@ -93,6 +93,16 @@ class ClassRepository {
         }
     }
 
+    /** Delete a class group (Dept Admin / Super Admin only). */
+    suspend fun deleteClass(classId: String): Result<Unit> {
+        return try {
+            client.from("class_groups").delete { filter { eq("id", classId) } }
+            Result.success(Unit)
+        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
+            Result.failure(e)
+        }
+    }
+
     /** Assign a teacher to a class group. */
     suspend fun assignTeacherToClass(classId: String, teacherId: String): Result<Unit> {
         return try {

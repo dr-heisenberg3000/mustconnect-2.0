@@ -31,6 +31,13 @@ import com.must.connect.ui.feed.GeneralFeedScreen
 import com.must.connect.ui.profile.EditProfileDialog
 import com.must.connect.ui.theme.BrandNavy
 import coil.compose.AsyncImage
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.UploadFile
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,6 +69,64 @@ fun SuperAdminDashboardScreen(
         )
     }
 
+    var showSearch by remember { mutableStateOf(false) }
+    val feedViewModel: com.must.connect.ui.feed.FeedViewModel = viewModel()
+    val feedUiState by feedViewModel.uiState.collectAsStateWithLifecycle()
+
+    var showTimetableUploadDialog by remember { mutableStateOf(false) }
+    var selectedTargetAudience by remember { mutableStateOf("Student") }
+    val context = LocalContext.current
+    
+    val timetableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+            if (bytes != null) {
+                feedViewModel.uploadTimetable(
+                    targetAudience = selectedTargetAudience,
+                    fileBytes = bytes,
+                    onSuccess = { },
+                    onError = { }
+                )
+            }
+        }
+        showTimetableUploadDialog = false
+    }
+
+    if (showTimetableUploadDialog) {
+        AlertDialog(
+            onDismissRequest = { showTimetableUploadDialog = false },
+            title = { Text("Upload Timetable") },
+            text = {
+                Column {
+                    Text("Select target audience:")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = selectedTargetAudience == "Student",
+                            onClick = { selectedTargetAudience = "Student" }
+                        )
+                        Text("Students")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = selectedTargetAudience == "Teacher",
+                            onClick = { selectedTargetAudience = "Teacher" }
+                        )
+                        Text("Teachers")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { timetableLauncher.launch("application/pdf") }) {
+                    Text("Select PDF")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimetableUploadDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+
     var showEditProfileDialog by remember { mutableStateOf(false) }
 
     if (showEditProfileDialog && uiState.profile != null) {
@@ -78,23 +143,47 @@ fun SuperAdminDashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            "MUST-CONNECT",
-                            fontWeight = FontWeight.Bold,
-                            fontSize   = 18.sp,
-                            color      = BrandNavy
+                    if (showSearch && selectedTab == 1) {
+                        TextField(
+                            value = feedUiState.searchQuery,
+                            onValueChange = { feedViewModel.updateSearchQuery(it) },
+                            placeholder = { Text("Search...", color = Color.Gray) },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         )
-                        Text(
-                            "System Command Center",
-                            fontSize = 12.sp,
-                            color    = Color.Gray
-                        )
+                    } else {
+                        Column {
+                            Text(
+                                "MUST-CONNECT",
+                                fontWeight = FontWeight.Bold,
+                                fontSize   = 18.sp,
+                                color      = BrandNavy
+                            )
+                            Text(
+                                "System Command Center",
+                                fontSize = 12.sp,
+                                color    = Color.Gray
+                            )
+                        }
                     }
                 },
                 actions = {
+                    if (selectedTab == 1) {
+                        IconButton(onClick = { showTimetableUploadDialog = true }) {
+                            Icon(Icons.Filled.UploadFile, contentDescription = "Upload Timetable", tint = BrandNavy)
+                        }
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, contentDescription = "Search", tint = BrandNavy)
+                        }
+                    }
                     IconButton(onClick = onSignOut) {
-                        Icon(Icons.Default.Logout, contentDescription = "Sign Out")
+                        Icon(Icons.Default.Logout, contentDescription = "Sign Out", tint = BrandNavy)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFF7F8FA))
@@ -125,7 +214,7 @@ fun SuperAdminDashboardScreen(
             0 -> SuperAdminOverviewTab(paddingValues, uiState)
             1 -> GeneralFeedScreen(paddingValues = paddingValues, canDelete = true)
             2 -> SuperAdminUsersTab(paddingValues, uiState)
-            3 -> SuperAdminClassesTab(paddingValues, uiState)
+            3 -> SuperAdminClassesTab(paddingValues, uiState, onDeleteClass = { viewModel.deleteClass(it) })
             4 -> SuperAdminProfileTab(
                 paddingValues    = paddingValues,
                 uiState          = uiState,
@@ -351,7 +440,7 @@ private fun SuperUserCard(name: String, identifier: String, badge: String, icon:
 // ── Classes tab ───────────────────────────────────────────────────────────────
 
 @Composable
-private fun SuperAdminClassesTab(paddingValues: PaddingValues, uiState: SuperAdminUiState) {
+private fun SuperAdminClassesTab(paddingValues: PaddingValues, uiState: SuperAdminUiState, onDeleteClass: (String) -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -367,7 +456,29 @@ private fun SuperAdminClassesTab(paddingValues: PaddingValues, uiState: SuperAdm
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(uiState.classes, key = { it.id }) { group ->
-                    SuperClassCard(group)
+                    var showDeleteDialog by remember { mutableStateOf(false) }
+
+                    if (showDeleteDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteDialog = false },
+                            title = { Text("Delete Class") },
+                            text = { Text("Are you sure you want to delete ${group.name}? This action cannot be undone.") },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    showDeleteDialog = false
+                                    onDeleteClass(group.id)
+                                }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+                            }
+                        )
+                    }
+
+                    SuperClassCard(
+                        group = group,
+                        onDeleteClick = { showDeleteDialog = true }
+                    )
                 }
             }
         }
@@ -375,7 +486,10 @@ private fun SuperAdminClassesTab(paddingValues: PaddingValues, uiState: SuperAdm
 }
 
 @Composable
-private fun SuperClassCard(group: ClassGroup) {
+private fun SuperClassCard(
+    group: ClassGroup,
+    onDeleteClick: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape    = RoundedCornerShape(16.dp),
@@ -394,6 +508,9 @@ private fun SuperClassCard(group: ClassGroup) {
                 if (group.section.isNotBlank()) {
                     Text("Sec ${group.section} · Sem ${group.semester}", fontSize = 12.sp, color = Color.Gray)
                 }
+            }
+            IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete Class", tint = MaterialTheme.colorScheme.error)
             }
         }
     }

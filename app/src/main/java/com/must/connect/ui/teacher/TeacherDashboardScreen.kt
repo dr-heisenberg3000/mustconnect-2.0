@@ -50,6 +50,8 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CalendarMonth
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -220,6 +222,15 @@ fun TeacherDashboardScreen(
                     }
                 },
                 actions = {
+                    if (selectedTab == 1) {
+                        val uriHandler = LocalUriHandler.current
+                        IconButton(onClick = {
+                            val url = "https://naosswlwqwrllieuxsvi.supabase.co/storage/v1/object/public/timetables/teacher_timetable.pdf"
+                            uriHandler.openUri(url)
+                        }) {
+                            Icon(Icons.Filled.CalendarMonth, contentDescription = "View Timetable", tint = BrandNavy)
+                        }
+                    }
                     if (selectedTab == 1 || selectedTab == 2) {
                         IconButton(onClick = { showSearch = !showSearch }) {
                             Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, contentDescription = "Search", tint = BrandNavy)

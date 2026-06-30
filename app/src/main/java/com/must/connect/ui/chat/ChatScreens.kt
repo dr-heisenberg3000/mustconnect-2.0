@@ -14,7 +14,6 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Edit
@@ -52,7 +51,6 @@ fun ConversationsScreen(
     onClassGroupClick: (com.must.connect.data.model.ClassGroup) -> Unit,
 ) {
     var showContactsDialog by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
-    var showNotificationsDropdown by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     var selectedTabIndex by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     val viewModel = androidx.lifecycle.viewmodel.compose.viewModel<ChatViewModel>()
@@ -84,8 +82,6 @@ fun ConversationsScreen(
             }
         }
     }
-
-    val unreadMessages = uiState.conversations.filter { !it.isRead && it.receiverId == currentUserId }
 
     androidx.compose.runtime.LaunchedEffect(showContactsDialog) {
         if (showContactsDialog && uiState.contacts.isEmpty()) {
@@ -193,47 +189,6 @@ fun ConversationsScreen(
                 actions = {
                     IconButton(onClick = { viewModel.toggleSearch() }) {
                         Icon(if (uiState.showSearch) Icons.Default.Close else Icons.Default.Search, contentDescription = "Search", tint = BrandNavy)
-                    }
-                    Box {
-                        IconButton(onClick = { showNotificationsDropdown = true }) {
-                            Icon(Icons.Default.NotificationsNone, contentDescription = "Notifications", tint = BrandNavy)
-                            if (unreadMessages.isNotEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(10.dp)
-                                        .background(Color.Red, CircleShape)
-                                        .align(Alignment.TopEnd)
-                                )
-                            }
-                        }
-                        DropdownMenu(
-                            expanded = showNotificationsDropdown,
-                            onDismissRequest = { showNotificationsDropdown = false },
-                            modifier = Modifier.background(Color.White)
-                        ) {
-                            if (unreadMessages.isEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text("No new notifications", color = Color.Gray) },
-                                    onClick = { showNotificationsDropdown = false }
-                                )
-                            } else {
-                                unreadMessages.forEach { msg ->
-                                    val partner = uiState.partners[msg.senderId]
-                                    DropdownMenuItem(
-                                        text = { 
-                                            Column {
-                                                Text(partner?.fullName ?: "Someone", fontWeight = FontWeight.Bold, color = BrandNavy)
-                                                Text(msg.body, maxLines = 1, overflow = TextOverflow.Ellipsis, color = Color.DarkGray, fontSize = 12.sp)
-                                            }
-                                        },
-                                        onClick = { 
-                                            showNotificationsDropdown = false
-                                            onConversationClick(msg.senderId)
-                                        }
-                                    )
-                                }
-                            }
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = BackgroundLight)

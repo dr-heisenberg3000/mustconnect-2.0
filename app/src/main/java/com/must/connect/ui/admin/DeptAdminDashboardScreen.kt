@@ -36,6 +36,13 @@ import com.must.connect.ui.theme.AccentBlue
 import com.must.connect.ui.theme.BrandNavy
 import com.must.connect.ui.profile.EditProfileDialog
 import coil.compose.AsyncImage
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.UploadFile
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,6 +56,62 @@ fun DeptAdminDashboardScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by remember { mutableIntStateOf(0) }
 
+    var showSearch by remember { mutableStateOf(false) }
+    val feedViewModel: com.must.connect.ui.feed.FeedViewModel = viewModel()
+    val feedUiState by feedViewModel.uiState.collectAsStateWithLifecycle()
+
+    var showTimetableUploadDialog by remember { mutableStateOf(false) }
+    var selectedTargetAudience by remember { mutableStateOf("Student") }
+    val context = LocalContext.current
+    
+    val timetableLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            val bytes = context.contentResolver.openInputStream(uri)?.readBytes()
+            if (bytes != null) {
+                feedViewModel.uploadTimetable(
+                    targetAudience = selectedTargetAudience,
+                    fileBytes = bytes,
+                    onSuccess = { },
+                    onError = { }
+                )
+            }
+        }
+        showTimetableUploadDialog = false
+    }
+
+    if (showTimetableUploadDialog) {
+        AlertDialog(
+            onDismissRequest = { showTimetableUploadDialog = false },
+            title = { Text("Upload Timetable") },
+            text = {
+                Column {
+                    Text("Select target audience:")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = selectedTargetAudience == "Student",
+                            onClick = { selectedTargetAudience = "Student" }
+                        )
+                        Text("Students")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(
+                            selected = selectedTargetAudience == "Teacher",
+                            onClick = { selectedTargetAudience = "Teacher" }
+                        )
+                        Text("Teachers")
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { timetableLauncher.launch("application/pdf") }) {
+                    Text("Select PDF")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimetableUploadDialog = false }) { Text("Cancel") }
+            }
+        )
+    }
     LaunchedEffect(uiState.feedbackMessage) {
         uiState.feedbackMessage?.let {
             snackbarHostState.showSnackbar(it)
@@ -103,23 +166,47 @@ fun DeptAdminDashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text(
-                            text = "Dept. of Computer Science & IT",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 17.sp,
-                            color = BrandNavy
+                    if (showSearch && selectedTab == 1) {
+                        TextField(
+                            value = feedUiState.searchQuery,
+                            onValueChange = { feedViewModel.updateSearchQuery(it) },
+                            placeholder = { Text("Search...", color = Color.Gray) },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            modifier = Modifier.fillMaxWidth()
                         )
-                        Text(
-                            text  = uiState.profile?.fullName ?: "Department Admin",
-                            fontSize = 12.sp,
-                            color = Color.Gray
-                        )
+                    } else {
+                        Column {
+                            Text(
+                                text = "Dept. of Computer Science & IT",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 17.sp,
+                                color = BrandNavy
+                            )
+                            Text(
+                                text  = uiState.profile?.fullName ?: "Department Admin",
+                                fontSize = 12.sp,
+                                color = Color.Gray
+                            )
+                        }
                     }
                 },
                 actions = {
+                    if (selectedTab == 1) {
+                        IconButton(onClick = { showTimetableUploadDialog = true }) {
+                            Icon(Icons.Filled.UploadFile, contentDescription = "Upload Timetable", tint = BrandNavy)
+                        }
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, contentDescription = "Search", tint = BrandNavy)
+                        }
+                    }
                     IconButton(onClick = onSignOut) {
-                        Icon(Icons.Default.Logout, contentDescription = "Sign Out")
+                        Icon(Icons.Default.Logout, contentDescription = "Sign Out", tint = BrandNavy)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFF7F8FA))
@@ -169,11 +256,12 @@ fun DeptAdminDashboardScreen(
                 onDeleteUser  = viewModel::deleteUser,
             )
             3 -> DeptAdminClassesTab(
-                paddingValues = paddingValues,
-                uiState       = uiState,
-                onCreateClass = viewModel::showCreateClassDialog,
-                onAssignTeacher = viewModel::assignTeacherToClass,
+                paddingValues    = paddingValues,
+                uiState          = uiState,
+                onCreateClass    = viewModel::showCreateClassDialog,
+                onAssignTeacher  = viewModel::assignTeacherToClass,
                 onEnrollStudents = viewModel::enrollStudentsToClass,
+                onDeleteClass    = viewModel::deleteClass
             )
             4 -> DeptAdminProfileTab(
                 paddingValues      = paddingValues,
@@ -578,6 +666,7 @@ private fun DeptAdminClassesTab(
     onCreateClass: () -> Unit,
     onAssignTeacher: (String, String) -> Unit,
     onEnrollStudents: (String, List<String>) -> Unit,
+    onDeleteClass: (String) -> Unit
 ) {
     var classToAssignTeacher by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<ClassGroup?>(null) }
     var classToEnrollStudents by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf<ClassGroup?>(null) }
@@ -614,12 +703,32 @@ private fun DeptAdminClassesTab(
                         val enrolledStudentIds = uiState.classMemberships[group.id] ?: emptyList()
                         val enrolledStudents = uiState.students.filter { enrolledStudentIds.contains(it.userId) }
 
+                        var showDeleteDialog by remember { mutableStateOf(false) }
+
+                        if (showDeleteDialog) {
+                            AlertDialog(
+                                onDismissRequest = { showDeleteDialog = false },
+                                title = { Text("Delete Class") },
+                                text = { Text("Are you sure you want to delete ${group.name}? This action cannot be undone.") },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        showDeleteDialog = false
+                                        onDeleteClass(group.id)
+                                    }) { Text("Delete", color = MaterialTheme.colorScheme.error) }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { showDeleteDialog = false }) { Text("Cancel") }
+                                }
+                            )
+                        }
+
                         ClassGroupCard(
                             group = group,
                             teacher = teacher,
                             enrolledStudents = enrolledStudents,
                             onAssignTeacherClick = { classToAssignTeacher = group },
-                            onEnrollStudentsClick = { classToEnrollStudents = group }
+                            onEnrollStudentsClick = { classToEnrollStudents = group },
+                            onDeleteClick = { showDeleteDialog = true }
                         )
                     }
                 }
@@ -722,7 +831,8 @@ private fun ClassGroupCard(
     teacher: TeacherProfile?,
     enrolledStudents: List<StudentProfile>,
     onAssignTeacherClick: () -> Unit,
-    onEnrollStudentsClick: () -> Unit
+    onEnrollStudentsClick: () -> Unit,
+    onDeleteClick: () -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
 
@@ -768,6 +878,10 @@ private fun ClassGroupCard(
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete Class", tint = MaterialTheme.colorScheme.error)
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))

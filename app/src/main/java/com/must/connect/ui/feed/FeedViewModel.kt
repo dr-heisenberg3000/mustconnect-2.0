@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import io.github.jan.supabase.storage.storage
 
 data class FeedState(
     val posts      : List<GeneralFeedPost> = emptyList(),
@@ -18,6 +19,8 @@ data class FeedState(
     val isLoading  : Boolean               = false,
     val error      : String?               = null,
     val searchQuery: String                = "",
+    val showSearch : Boolean               = false,
+    val userRole   : com.must.connect.data.model.UserRole? = null
 )
 
 class FeedViewModel(
@@ -30,7 +33,13 @@ class FeedViewModel(
     val uiState: StateFlow<FeedState> = _uiState.asStateFlow()
 
     init {
+        loadCurrentUserRole()
         loadPosts()
+    }
+
+    private fun loadCurrentUserRole() {
+        val user = authRepository.currentUser
+        _uiState.value = _uiState.value.copy(userRole = user?.role)
     }
 
     fun loadPosts() {
@@ -58,8 +67,34 @@ class FeedViewModel(
         }
     }
 
+    fun toggleSearch() {
+        _uiState.value = _uiState.value.copy(
+            showSearch = !_uiState.value.showSearch,
+            searchQuery = if (_uiState.value.showSearch) "" else _uiState.value.searchQuery
+        )
+    }
+
     fun updateSearchQuery(query: String) {
         _uiState.value = _uiState.value.copy(searchQuery = query)
+    }
+
+    fun uploadTimetable(
+        targetAudience: String, // "Student" or "Teacher"
+        fileBytes: ByteArray,
+        onSuccess: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        viewModelScope.launch {
+            try {
+                val fileName = if (targetAudience == "Student") "student_timetable.pdf" else "teacher_timetable.pdf"
+                SupabaseClientProvider.client.storage
+                    .from("timetables")
+                    .upload(fileName, fileBytes) { upsert = true }
+                onSuccess()
+            } catch (e: Exception) {
+                onError("Failed to upload timetable: ${e.message}")
+            }
+        }
     }
 
     /**

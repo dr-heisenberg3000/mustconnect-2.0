@@ -39,6 +39,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.UploadFile
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
 
 
 @Composable
@@ -49,50 +56,54 @@ fun GeneralFeedScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
 
-    Box(
+
+
+    Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(paddingValues)
             .background(Color(0xFFF7F8FA))
     ) {
-        when {
-            uiState.isLoading -> {
-                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-            }
-            uiState.posts.isEmpty() -> {
-                Column(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text  = "No announcements yet.",
-                        color = Color.Gray,
-                        fontWeight = FontWeight.Medium
-                    )
-                    Text(
-                        text  = "Official announcements will appear here.",
-                        color = Color.Gray,
-                        fontSize = 13.sp
-                    )
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            when {
+                uiState.isLoading -> {
+                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                 }
-            }
-            else -> {
-                val filteredPosts = if (uiState.searchQuery.isBlank()) {
-                    uiState.posts
-                } else {
-                    val query = uiState.searchQuery.lowercase()
-                    uiState.posts.filter { post ->
-                        val authorName = uiState.authors[post.authorId]?.fullName?.lowercase() ?: ""
-                        post.title.lowercase().contains(query) ||
-                        post.body.lowercase().contains(query) ||
-                        authorName.contains(query) ||
-                        (post.attachmentUrl?.lowercase()?.contains(query) == true)
+                uiState.posts.isEmpty() -> {
+                    Column(
+                        modifier = Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text  = "No announcements yet.",
+                            color = Color.Gray,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text  = "Official announcements will appear here.",
+                            color = Color.Gray,
+                            fontSize = 13.sp
+                        )
                     }
                 }
+                else -> {
+                    val filteredPosts = if (uiState.searchQuery.isBlank()) {
+                        uiState.posts
+                    } else {
+                        val query = uiState.searchQuery.lowercase()
+                        uiState.posts.filter { post ->
+                            val authorName = uiState.authors[post.authorId]?.fullName?.lowercase() ?: ""
+                            post.title.lowercase().contains(query) ||
+                            post.body.lowercase().contains(query) ||
+                            authorName.contains(query) ||
+                            (post.attachmentUrl?.lowercase()?.contains(query) == true)
+                        }
+                    }
 
-                Column(modifier = Modifier.fillMaxSize()) {
                     if (filteredPosts.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("No posts found.", color = Color.Gray)

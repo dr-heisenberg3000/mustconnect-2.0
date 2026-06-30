@@ -205,6 +205,18 @@ class DeptAdminViewModel : ViewModel() {
         }
     }
 
+    fun deleteClass(classId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            classRepository.deleteClass(classId).onSuccess {
+                _uiState.update { it.copy(isLoading = false, feedbackMessage = "Class deleted successfully.") }
+                loadAll()
+            }.onFailure { e ->
+                _uiState.update { it.copy(isLoading = false, feedbackMessage = e.message ?: "Failed to delete class.") }
+            }
+        }
+    }
+
     // ── Admin Password Reset ──────────────────────────────────────────────────
     
     fun resetUserPassword(userId: String) {

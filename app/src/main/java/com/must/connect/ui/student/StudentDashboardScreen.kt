@@ -46,6 +46,8 @@ import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.CalendarMonth
+
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
 
@@ -131,6 +133,15 @@ fun StudentDashboardScreen(
                     }
                 },
                 actions = {
+                    if (selectedTab == 1) {
+                        val uriHandler = LocalUriHandler.current
+                        IconButton(onClick = {
+                            val url = "https://naosswlwqwrllieuxsvi.supabase.co/storage/v1/object/public/timetables/student_timetable.pdf"
+                            uriHandler.openUri(url)
+                        }) {
+                            Icon(Icons.Filled.CalendarMonth, contentDescription = "View Timetable", tint = BrandNavy)
+                        }
+                    }
                     if (selectedTab == 1 || selectedTab == 2) {
                         IconButton(onClick = { showSearch = !showSearch }) {
                             Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, contentDescription = "Search", tint = BrandNavy)

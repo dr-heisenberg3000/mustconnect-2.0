@@ -109,6 +109,18 @@ class SuperAdminViewModel : ViewModel() {
         }
     }
 
+    fun deleteClass(classId: String) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(isLoading = true) }
+            classRepository.deleteClass(classId).onSuccess {
+                _uiState.update { it.copy(isLoading = false, feedbackMessage = "Class deleted successfully.") }
+                loadAll()
+            }.onFailure { e ->
+                _uiState.update { it.copy(isLoading = false, feedbackMessage = e.message ?: "Failed to delete class.") }
+            }
+        }
+    }
+
     fun clearFeedback() { _uiState.update { it.copy(feedbackMessage = null) } }
 }
 
