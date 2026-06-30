@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Class
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -33,6 +34,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.must.connect.data.model.DirectMessage
+import com.must.connect.data.model.StudentProfile
+import com.must.connect.data.model.TeacherProfile
 import com.must.connect.data.model.UserProfile
 import com.must.connect.ui.theme.*
 import java.text.SimpleDateFormat
@@ -70,6 +73,18 @@ fun ConversationsScreen(
         }
     }
     
+    // Filter class groups based on search
+    val filteredGroups = androidx.compose.runtime.remember(uiState.classGroups, uiState.searchQuery) {
+        if (uiState.searchQuery.isBlank()) {
+            uiState.classGroups
+        } else {
+            uiState.classGroups.filter { group ->
+                group.name.contains(uiState.searchQuery, ignoreCase = true) ||
+                group.subject.contains(uiState.searchQuery, ignoreCase = true)
+            }
+        }
+    }
+
     val unreadMessages = uiState.conversations.filter { !it.isRead && it.receiverId == currentUserId }
 
     androidx.compose.runtime.LaunchedEffect(showContactsDialog) {
@@ -302,13 +317,13 @@ fun ConversationsScreen(
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                     CircularProgressIndicator(color = AccentBlue)
                                 }
-                            } else if (uiState.classGroups.isEmpty()) {
+                            } else if (filteredGroups.isEmpty()) {
                                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Text("No groups available.", color = TextSecondary, fontSize = 16.sp)
+                                    Text(if (uiState.searchQuery.isNotEmpty()) "No matches found." else "No groups available.", color = TextSecondary, fontSize = 16.sp)
                                 }
                             } else {
                                 LazyColumn(modifier = Modifier.fillMaxSize()) {
-                                    items(uiState.classGroups) { group ->
+                                    items(filteredGroups) { group ->
                                         ClassGroupItem(
                                             group = group,
                                             onClick = { onClassGroupClick(group) }
@@ -380,7 +395,7 @@ private fun ConversationItem(
                 .background(SubtleGrey),
             contentAlignment = Alignment.Center
         ) {
-            if (partner.avatarUrl != null) {
+            if (!partner.avatarUrl.isNullOrEmpty()) {
                 coil.compose.AsyncImage(
                     model = partner.avatarUrl,
                     contentDescription = "Avatar",
@@ -390,14 +405,6 @@ private fun ConversationItem(
             } else {
                 Icon(Icons.Filled.Person, contentDescription = "Profile", tint = Color.Gray, modifier = Modifier.size(32.dp))
             }
-            Box(
-                modifier = Modifier
-                    .size(14.dp)
-                    .align(Alignment.BottomEnd)
-                    .clip(CircleShape)
-                    .background(Color(0xFF68D391)) // Green dot
-                    .border(2.dp, BackgroundLight, CircleShape)
-            )
         }
         
         Spacer(modifier = Modifier.width(16.dp))
@@ -461,11 +468,11 @@ private fun ClassGroupItem(
         Box(
             modifier = Modifier
                 .size(56.dp)
-                .clip(CircleShape)
-                .background(SubtleGrey),
+                .clip(RoundedCornerShape(12.dp))
+                .background(BrandNavy.copy(alpha = 0.1f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Default.Groups, contentDescription = "Group", tint = TextSecondary, modifier = Modifier.size(32.dp))
+            Icon(Icons.Default.Class, contentDescription = "Class", tint = BrandNavy, modifier = Modifier.size(28.dp))
         }
         
         Spacer(modifier = Modifier.width(16.dp))
@@ -499,7 +506,30 @@ fun ChatScreen(
 ) {
     Column(modifier = Modifier.fillMaxSize().background(BackgroundLight)) {
         TopAppBar(
-            title = { Text(uiState.activePartnerProfile?.fullName ?: "Chat", color = BrandNavy, fontWeight = FontWeight.Bold) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val partner = uiState.activePartnerProfile
+                    if (partner != null) {
+                        if (!partner.avatarUrl.isNullOrEmpty()) {
+                            coil.compose.AsyncImage(
+                                model = partner.avatarUrl,
+                                contentDescription = "Avatar",
+                                modifier = Modifier.size(36.dp).clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier.size(36.dp).clip(CircleShape).background(SubtleGrey),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(Icons.Filled.Person, contentDescription = "Profile", tint = Color.Gray, modifier = Modifier.size(24.dp))
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                    }
+                    Text(partner?.fullName ?: "Chat", color = BrandNavy, fontWeight = FontWeight.Bold)
+                }
+            },
             navigationIcon = {
                 IconButton(onClick = onBack) {
                     Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = BrandNavy)
@@ -672,7 +702,7 @@ private fun ChatMessageItem(message: DirectMessage, isOwn: Boolean, profile: Use
                         .background(SubtleGrey),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (profile?.avatarUrl != null) {
+                    if (!profile?.avatarUrl.isNullOrEmpty()) {
                         coil.compose.AsyncImage(
                             model = profile.avatarUrl,
                             contentDescription = "Avatar",
@@ -713,7 +743,7 @@ private fun ChatMessageItem(message: DirectMessage, isOwn: Boolean, profile: Use
                         .background(SubtleGrey),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (profile?.avatarUrl != null) {
+                    if (!profile?.avatarUrl.isNullOrEmpty()) {
                         coil.compose.AsyncImage(
                             model = profile.avatarUrl,
                             contentDescription = "Avatar",
@@ -755,8 +785,16 @@ private fun GroupChatMessageItem(
         horizontalAlignment = if (isOwn) Alignment.End else Alignment.Start
     ) {
         if (!isOwn) {
+            val name = profile?.fullName ?: "Unknown User"
+            val additionalInfo = when (profile) {
+                is StudentProfile -> profile.rollNumber.takeIf { it.isNotBlank() }
+                is TeacherProfile -> profile.designation.takeIf { it.isNotBlank() }
+                else -> null
+            }
+            val titleText = if (additionalInfo != null) "$name • $additionalInfo" else name
+
             Text(
-                text = profile?.fullName ?: "Unknown User",
+                text = titleText,
                 color = BrandNavy,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
@@ -772,7 +810,7 @@ private fun GroupChatMessageItem(
                         .background(SubtleGrey),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (profile?.avatarUrl != null) {
+                    if (!profile?.avatarUrl.isNullOrEmpty()) {
                         coil.compose.AsyncImage(
                             model = profile.avatarUrl,
                             contentDescription = "Avatar",
@@ -813,7 +851,7 @@ private fun GroupChatMessageItem(
                         .background(SubtleGrey),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (profile?.avatarUrl != null) {
+                    if (!profile?.avatarUrl.isNullOrEmpty()) {
                         coil.compose.AsyncImage(
                             model = profile.avatarUrl,
                             contentDescription = "Avatar",

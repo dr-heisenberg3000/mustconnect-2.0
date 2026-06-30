@@ -188,14 +188,19 @@ class ChatViewModel : ViewModel() {
     fun openChat(partnerId: String) {
         val currentUserId = _uiState.value.currentUserProfile?.userId ?: return
         
-        var partnerProfile = _uiState.value.partners[partnerId]
-        if (partnerProfile == null) {
-            partnerProfile = _uiState.value.contacts.find { it.userId == partnerId }
-        }
-        
-        _uiState.update { it.copy(activePartnerId = partnerId, activePartnerProfile = partnerProfile, isChatLoading = true) }
+        _uiState.update { it.copy(activePartnerId = partnerId, isChatLoading = true) }
         
         viewModelScope.launch {
+            var partnerProfile = _uiState.value.partners[partnerId]
+            if (partnerProfile == null) {
+                partnerProfile = _uiState.value.contacts.find { it.userId == partnerId }
+            }
+            if (partnerProfile == null) {
+                partnerProfile = userRepository.getStudentByUserId(partnerId) ?: userRepository.getTeacherByUserId(partnerId)
+            }
+            
+            _uiState.update { it.copy(activePartnerProfile = partnerProfile) }
+            
             messageRepository.getConversation(currentUserId, partnerId).collect { msgs ->
                 _uiState.update { it.copy(activeMessages = msgs, isChatLoading = false) }
                 // Mark as read

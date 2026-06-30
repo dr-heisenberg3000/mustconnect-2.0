@@ -31,11 +31,33 @@ import com.must.connect.ui.teacher.TeacherDashboardScreen
 import com.must.connect.ui.theme.MUSTCONNECTTheme
 import com.must.connect.ui.viewmodel.AuthViewModel
 import com.must.connect.ui.viewmodel.LoginUiState
+import coil.Coil
+import coil.ImageLoader
+import coil.disk.DiskCache
+import coil.memory.MemoryCache
 
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        val imageLoader = ImageLoader.Builder(this)
+            .memoryCache {
+                MemoryCache.Builder(this)
+                    .maxSizePercent(0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(this.cacheDir.resolve("image_cache"))
+                    .maxSizePercent(0.05)
+                    .build()
+            }
+            .crossfade(true)
+            .build()
+            
+        Coil.setImageLoader(imageLoader)
+        
         enableEdgeToEdge()
 
         setContent {

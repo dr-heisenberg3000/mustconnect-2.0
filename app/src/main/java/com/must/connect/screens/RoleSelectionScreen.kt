@@ -38,7 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -99,29 +101,32 @@ fun RoleSelectionScreen(
     onBack        : () -> Unit,
     onRoleSelected: (role: String) -> Unit,
 ) {
+    var showHelpDialog by remember { mutableStateOf(false) }
+
+    if (showHelpDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showHelpDialog = false },
+            title = { Text("Login Help") },
+            text = { Text("If you are experiencing login issues, please contact the HOD of the CS&IT department for assistance.") },
+            confirmButton = {
+                TextButton(onClick = { showHelpDialog = false }) {
+                    Text("OK")
+                }
+            }
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundLight),
     ) {
         LazyColumn(
-            contentPadding      = PaddingValues(bottom = 32.dp),
+            contentPadding      = PaddingValues(vertical = 32.dp),
             modifier            = Modifier.fillMaxSize(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
         ) {
-            // ── Back arrow ────────────────────────────────────────────────────
-            item {
-                IconButton(
-                    onClick  = onBack,
-                    modifier = Modifier.padding(top = 16.dp, start = 8.dp),
-                ) {
-                    Icon(
-                        imageVector        = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint               = TextPrimary,
-                    )
-                }
-            }
-
             // ── Header ────────────────────────────────────────────────────────
             item {
                 Column(
@@ -166,7 +171,7 @@ fun RoleSelectionScreen(
             item {
                 Spacer(modifier = Modifier.height(24.dp))
                 TextButton(
-                    onClick  = { /* open help flow */ },
+                    onClick  = { showHelpDialog = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(
@@ -182,7 +187,7 @@ fun RoleSelectionScreen(
                     text      = "v2.0.26 © MUST Technology Department",
                     color     = TextSecondary.copy(alpha = 0.6f),
                     fontSize  = 11.sp,
-                    modifier  = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                 )
             }

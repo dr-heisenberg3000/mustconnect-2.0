@@ -40,6 +40,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.layout.ContentScale
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Clear
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -51,6 +61,10 @@ fun TeacherDashboardScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var selectedTab by remember { mutableIntStateOf(0) }
+    var showSearch by remember { mutableStateOf(false) }
+    var showNotificationsDropdown by remember { mutableStateOf(false) }
+    val feedViewModel: com.must.connect.ui.feed.FeedViewModel = viewModel()
+    val feedUiState by feedViewModel.uiState.collectAsStateWithLifecycle()
 
     LaunchedEffect(uiState.feedbackMessage) {
         uiState.feedbackMessage?.let { snackbarHostState.showSnackbar(it); viewModel.clearFeedback() }
@@ -181,14 +195,82 @@ fun TeacherDashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Column {
-                        Text("MUST-CONNECT", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = BrandNavy)
-                        Text("Faculty Portal", fontSize = 12.sp, color = Color.Gray)
+                    if (showSearch && (selectedTab == 1 || selectedTab == 2)) {
+                        TextField(
+                            value = if (selectedTab == 1) feedUiState.searchQuery else uiState.classSearchQuery,
+                            onValueChange = { 
+                                if (selectedTab == 1) feedViewModel.updateSearchQuery(it)
+                                else viewModel.updateClassSearchQuery(it)
+                            },
+                            placeholder = { Text("Search...", color = Color.Gray) },
+                            singleLine = true,
+                            colors = TextFieldDefaults.colors(
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Column {
+                            Text("MUST-CONNECT", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = BrandNavy)
+                            Text("Faculty Portal", fontSize = 12.sp, color = Color.Gray)
+                        }
                     }
                 },
                 actions = {
+                    if (selectedTab == 1 || selectedTab == 2) {
+                        IconButton(onClick = { showSearch = !showSearch }) {
+                            Icon(if (showSearch) Icons.Default.Close else Icons.Default.Search, contentDescription = "Search", tint = BrandNavy)
+                        }
+                    }
+                    Box {
+                        IconButton(onClick = { showNotificationsDropdown = true }) {
+                            Icon(
+                                imageVector = Icons.Default.NotificationsNone,
+                                contentDescription = "Notifications",
+                                tint = BrandNavy
+                            )
+                            if (uiState.newPostCount > 0 || uiState.unreadDmCount > 0) {
+                                Box(
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(8.dp)
+                                        .size(10.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Red)
+                                )
+                            }
+                        }
+                        DropdownMenu(
+                            expanded = showNotificationsDropdown,
+                            onDismissRequest = { showNotificationsDropdown = false },
+                            modifier = Modifier.background(Color.White)
+                        ) {
+                            if (uiState.unreadDmCount == 0 && uiState.newPostCount == 0) {
+                                DropdownMenuItem(
+                                    text = { Text("No new notifications", color = Color.Gray) },
+                                    onClick = { showNotificationsDropdown = false }
+                                )
+                            } else {
+                                if (uiState.unreadDmCount > 0) {
+                                    DropdownMenuItem(
+                                        text = { Text("${uiState.unreadDmCount} unread message(s)", color = BrandNavy, fontWeight = FontWeight.SemiBold) },
+                                        onClick = { showNotificationsDropdown = false; onNavigateToChat() }
+                                    )
+                                }
+                                if (uiState.newPostCount > 0) {
+                                    DropdownMenuItem(
+                                        text = { Text("${uiState.newPostCount} new feed posts", color = BrandNavy, fontWeight = FontWeight.SemiBold) },
+                                        onClick = { showNotificationsDropdown = false; selectedTab = 1 }
+                                    )
+                                }
+                            }
+                        }
+                    }
                     IconButton(onClick = onSignOut) {
-                        Icon(Icons.Default.Logout, contentDescription = "Sign Out")
+                        Icon(Icons.Default.Logout, contentDescription = "Sign Out", tint = BrandNavy)
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFFF7F8FA))
@@ -226,6 +308,7 @@ fun TeacherDashboardScreen(
                 onSelectClass   = viewModel::selectClass,
                 onCreatePost    = viewModel::showCreatePostDialog,
                 onDeletePost    = { postId -> viewModel.deletePost(postId) },
+                onUpdateSearchQuery = viewModel::updateClassSearchQuery
             )
             3 -> TeacherProfileTab(
                 paddingValues    = paddingValues,
@@ -352,6 +435,7 @@ private fun TeacherClassesTab(
     onSelectClass : (String?) -> Unit,
     onCreatePost  : () -> Unit,
     onDeletePost  : (String) -> Unit,
+    onUpdateSearchQuery: (String) -> Unit
 ) {
     val myClasses = uiState.myClasses
     if (myClasses.isEmpty()) {
@@ -379,37 +463,58 @@ private fun TeacherClassesTab(
         
         Column(modifier = Modifier.fillMaxSize().padding(paddingValues).background(Color(0xFFF7F8FA))) {
             // Header
-            Box(modifier = Modifier.fillMaxWidth().background(BrandNavy).padding(16.dp)) {
-                Column {
-                    IconButton(onClick = { onSelectClass(null) }, modifier = Modifier.padding(bottom = 8.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = Color.White,
+                shadowElevation = 2.dp
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = { onSelectClass(null) }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = BrandNavy)
                     }
-                    Text(selectedClass.name, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text("${selectedClass.subject} · Section ${selectedClass.section}", fontSize = 14.sp, color = Color.White.copy(alpha = 0.8f))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(selectedClass.subject, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(shape = RoundedCornerShape(100.dp), color = BrandNavy.copy(alpha = 0.1f)) {
+                                Text(selectedClass.name, fontSize = 11.sp, color = BrandNavy, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Sec ${selectedClass.section}", fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
                 }
             }
             
-            // Tabs (Mocked visual for now)
-            Row(modifier = Modifier.fillMaxWidth().background(Color.White).padding(vertical = 12.dp, horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text("Feed", fontWeight = FontWeight.Bold, color = BrandNavy)
-                Text("Resources", color = Color.Gray)
-                Text("Assignments", color = Color.Gray)
+            // Class posts
+            val filteredPosts = if (uiState.classSearchQuery.isBlank()) {
+                uiState.classPosts
+            } else {
+                val query = uiState.classSearchQuery.lowercase()
+                uiState.classPosts.filter { post ->
+                    val authorName = uiState.postAuthors[post.authorId]?.fullName?.lowercase() ?: ""
+                    post.title.lowercase().contains(query) ||
+                    post.body.lowercase().contains(query) ||
+                    authorName.contains(query) ||
+                    (post.attachmentUrl?.lowercase()?.contains(query) == true)
+                }
             }
-            HorizontalDivider(color = Color(0xFFE5E7EB))
 
-            // Posts list
             Box(modifier = Modifier.weight(1f)) {
-                if (uiState.classPosts.isEmpty()) {
+                if (filteredPosts.isEmpty()) {
                     Column(modifier = Modifier.align(Alignment.Center), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Default.PostAdd, null, tint = Color.Gray, modifier = Modifier.size(40.dp))
                         Spacer(modifier = Modifier.height(8.dp))
-                        Text("No posts yet. Create the first one!", color = Color.Gray)
+                        Text(if (uiState.classPosts.isEmpty()) "No posts yet. Create the first one!" else "No posts found.", color = Color.Gray)
                     }
                 } else {
                     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        items(uiState.classPosts, key = { it.id }) { post ->
-                            TeacherClassPostCard(post, onDeletePost)
+                        items(filteredPosts, key = { it.id }) { post ->
+                            TeacherClassPostCard(post, onDeletePost, author = uiState.postAuthors[post.authorId])
                         }
                     }
                 }
@@ -455,7 +560,7 @@ private fun MyClassCard(group: ClassGroup, onClick: () -> Unit) {
 }
 
 @Composable
-private fun TeacherClassPostCard(post: ClassPost, onDelete: (String) -> Unit) {
+private fun TeacherClassPostCard(post: ClassPost, onDelete: (String) -> Unit, author: com.must.connect.data.model.UserProfile?) {
     var showDeleteDialog by remember { mutableStateOf(false) }
     if (showDeleteDialog) {
         AlertDialog(
@@ -474,46 +579,100 @@ private fun TeacherClassPostCard(post: ClassPost, onDelete: (String) -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape    = RoundedCornerShape(16.dp),
         colors   = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                Text(post.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+            // Author Info
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 12.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(BrandNavy.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (!author?.avatarUrl.isNullOrEmpty()) {
+                        AsyncImage(
+                            model = author.avatarUrl,
+                            contentDescription = "Avatar",
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        Icon(Icons.Default.Person, contentDescription = "Profile", tint = BrandNavy, modifier = Modifier.size(20.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = author?.fullName ?: "Me",
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        color = Color.Black
+                    )
+                    val date = try {
+                        val f = DateTimeFormatter.ofPattern("MMM dd, HH:mm").withZone(ZoneId.systemDefault())
+                        f.format(Instant.parse(post.createdAt))
+                    } catch (e: Exception) { "Recently" }
+                    Text(date, fontSize = 12.sp, color = Color.Gray)
+                }
+                Surface(shape = RoundedCornerShape(100.dp), color = if (post.postType == "ASSIGNMENT") Color(0xFFFFF7ED) else BrandNavy.copy(alpha = 0.1f)) {
+                    Text(post.postType, fontSize = 10.sp, color = if (post.postType == "ASSIGNMENT") Color(0xFFC2410C) else BrandNavy, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                }
                 IconButton(onClick = { showDeleteDialog = true }, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.Delete, null, tint = Color(0xFFEF4444), modifier = Modifier.size(18.dp))
                 }
             }
-            val date = try {
-                val f = DateTimeFormatter.ofPattern("MMM dd, HH:mm").withZone(ZoneId.systemDefault())
-                f.format(Instant.parse(post.createdAt))
-            } catch (e: Exception) { "Recently" }
-            Text(date, fontSize = 12.sp, color = Color.Gray)
-            Spacer(modifier = Modifier.height(8.dp))
+
+            Text(post.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Spacer(modifier = Modifier.height(4.dp))
             Text(post.body, fontSize = 14.sp, color = Color.DarkGray, lineHeight = 20.sp)
+            
             if (post.attachmentUrl != null) {
                 Spacer(modifier = Modifier.height(12.dp))
-                if (post.attachmentType?.startsWith("image/") == true) {
-                    AsyncImage(
-                        model = post.attachmentUrl,
-                        contentDescription = "Post Image",
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 300.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    val uriHandler = LocalUriHandler.current
+                val uriHandler = LocalUriHandler.current
+                val context = LocalContext.current
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     OutlinedButton(
                         onClick = { uriHandler.openUri(post.attachmentUrl) },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(12.dp)
                     ) {
                         Icon(Icons.Default.AttachFile, contentDescription = "Attachment")
                         Spacer(modifier = Modifier.width(8.dp))
-                        val isVideo = post.attachmentType?.startsWith("video/") == true
-                        Text(if (isVideo) "Watch Video" else (post.attachmentType ?: "View Attachment"))
+                        val displayFileName = try {
+                            val uriSegment = android.net.Uri.parse(post.attachmentUrl).lastPathSegment ?: "View File"
+                            if (uriSegment.contains("_")) uriSegment.substringAfter("_") else uriSegment
+                        } catch (e: Exception) { "View File" }
+                        Text(displayFileName, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                    }
+                    
+                    IconButton(
+                        onClick = {
+                            try {
+                                val request = DownloadManager.Request(Uri.parse(post.attachmentUrl))
+                                val fileName = Uri.parse(post.attachmentUrl).lastPathSegment ?: "downloaded_file"
+                                request.setTitle(fileName)
+                                request.setDescription("Downloading file from MUST CONNECT")
+                                request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                                val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                downloadManager.enqueue(request)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                    ) {
+                        Icon(Icons.Default.Download, contentDescription = "Download")
                     }
                 }
             }

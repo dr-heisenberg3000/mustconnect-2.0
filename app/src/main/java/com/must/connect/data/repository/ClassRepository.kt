@@ -7,6 +7,7 @@ import com.must.connect.data.remote.SupabaseClientProvider
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
 import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -141,16 +142,22 @@ class ClassRepository {
 
     // ── Class Posts ───────────────────────────────────────────────────────────
 
-    /** Get posts for a specific class, newest first. */
-    fun getClassPosts(classId: String): Flow<List<ClassPost>> = flow {
-        try {
-            val result = client.from("class_posts")
-                .select { filter { eq("class_id", classId) }; order("created_at", Order.DESCENDING) }
-                .decodeList<ClassPost>()
-            emit(result)
-        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
-            e.printStackTrace()
-            emit(emptyList())
+    /**
+     * Get posts for a specific class, newest first.
+     * Polls every [pollIntervalMs] for auto-refresh.
+     */
+    fun getClassPosts(classId: String, pollIntervalMs: Long = 10_000L): Flow<List<ClassPost>> = flow {
+        while (true) {
+            try {
+                val result = client.from("class_posts")
+                    .select { filter { eq("class_id", classId) }; order("created_at", Order.DESCENDING) }
+                    .decodeList<ClassPost>()
+                emit(result)
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
+                e.printStackTrace()
+                emit(emptyList())
+            }
+            delay(pollIntervalMs)
         }
     }
 
@@ -167,7 +174,7 @@ class ClassRepository {
     ): Result<Unit> {
         return try {
             var finalUrl: String? = null
-            
+
             if (attachmentBytes != null && attachmentName != null) {
                 val bucket = client.storage.from("class_media")
                 val uniqueName = "${java.util.UUID.randomUUID()}_$attachmentName"

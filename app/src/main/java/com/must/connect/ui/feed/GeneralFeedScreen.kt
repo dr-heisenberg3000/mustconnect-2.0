@@ -27,10 +27,19 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
+import android.os.Environment
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Download
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Clear
+
 
 @Composable
 fun GeneralFeedScreen(
@@ -70,25 +79,45 @@ fun GeneralFeedScreen(
                 }
             }
             else -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(uiState.posts, key = { it.id }) { post ->
-                        FeedPostCard(
-                            post      = post,
-                            author    = uiState.authors[post.authorId],
-                            canDelete = canDelete,
-                            onDelete  = { viewModel.deletePost(post.id) }
-                        )
+                val filteredPosts = if (uiState.searchQuery.isBlank()) {
+                    uiState.posts
+                } else {
+                    val query = uiState.searchQuery.lowercase()
+                    uiState.posts.filter { post ->
+                        val authorName = uiState.authors[post.authorId]?.fullName?.lowercase() ?: ""
+                        post.title.lowercase().contains(query) ||
+                        post.body.lowercase().contains(query) ||
+                        authorName.contains(query) ||
+                        (post.attachmentUrl?.lowercase()?.contains(query) == true)
+                    }
+                }
+
+                Column(modifier = Modifier.fillMaxSize()) {
+                    if (filteredPosts.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text("No posts found.", color = Color.Gray)
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            items(filteredPosts, key = { it.id }) { post ->
+                                FeedPostCard(
+                                    post      = post,
+                                    author    = uiState.authors[post.authorId],
+                                    canDelete = canDelete,
+                                    onDelete  = { viewModel.deletePost(post.id) }
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
-
 @Composable
 fun FeedPostCard(
     post      : GeneralFeedPost,
@@ -155,7 +184,7 @@ fun FeedPostCard(
                         .background(BrandNavy.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    if (author?.avatarUrl != null) {
+                    if (!author?.avatarUrl.isNullOrEmpty()) {
                         AsyncImage(
                             model = author.avatarUrl,
                             contentDescription = "Avatar",
@@ -239,16 +268,48 @@ fun FeedPostCard(
                     )
                 } else {
                     val uriHandler = LocalUriHandler.current
-                    OutlinedButton(
-                        onClick = { uriHandler.openUri(post.attachmentUrl) },
+                    val context = LocalContext.current
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp),
-                        contentPadding = PaddingValues(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(Icons.Default.AttachFile, contentDescription = "Attachment")
-                        Spacer(modifier = Modifier.width(8.dp))
-                        val isVideo = post.attachmentType?.startsWith("video/") == true
-                        Text(if (isVideo) "Watch Video" else (post.attachmentType ?: "View Attachment"))
+                        OutlinedButton(
+                            onClick = { uriHandler.openUri(post.attachmentUrl) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(12.dp)
+                        ) {
+                            Icon(Icons.Default.AttachFile, contentDescription = "Attachment")
+                            Spacer(modifier = Modifier.width(8.dp))
+                            val isVideo = post.attachmentType?.startsWith("video/") == true
+                            val displayFileName = try {
+                                val uriSegment = android.net.Uri.parse(post.attachmentUrl).lastPathSegment ?: if (isVideo) "Watch Video" else "View File"
+                                if (uriSegment.contains("_")) uriSegment.substringAfter("_") else uriSegment
+                            } catch (e: Exception) { if (isVideo) "Watch Video" else "View File" }
+                            Text(displayFileName, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                        }
+                        
+                        IconButton(
+                            onClick = {
+                                try {
+                                    val request = DownloadManager.Request(Uri.parse(post.attachmentUrl))
+                                    val fileName = Uri.parse(post.attachmentUrl).lastPathSegment ?: "downloaded_file"
+                                    request.setTitle(fileName)
+                                    request.setDescription("Downloading file from MUST CONNECT")
+                                    request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                    request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
+                                    val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                    downloadManager.enqueue(request)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            },
+                            modifier = Modifier
+                                .size(48.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                        ) {
+                            Icon(Icons.Default.Download, contentDescription = "Download")
+                        }
                     }
                 }
             }

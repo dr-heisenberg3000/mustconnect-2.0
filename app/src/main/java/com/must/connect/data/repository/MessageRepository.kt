@@ -4,6 +4,7 @@ import com.must.connect.data.model.DirectMessage
 import com.must.connect.data.remote.SupabaseClientProvider
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 
@@ -15,49 +16,58 @@ class MessageRepository {
 
     private val client = SupabaseClientProvider.client
 
-    /** Get the full conversation between two users. */
-    fun getConversation(userId: String, otherUserId: String): Flow<List<DirectMessage>> = flow {
-        try {
-            // Fetch messages where user is sender or receiver, ordered by time
-            val result = client.from("direct_messages")
-                .select {
-                    filter {
-                        isIn("sender_id", listOf(userId, otherUserId))
-                        isIn("receiver_id", listOf(userId, otherUserId))
+    /**
+     * Get the full conversation between two users.
+     * Polls every [pollIntervalMs] for real-time-like auto-refresh.
+     */
+    fun getConversation(userId: String, otherUserId: String, pollIntervalMs: Long = 2_000L): Flow<List<DirectMessage>> = flow {
+        while (true) {
+            try {
+                val result = client.from("direct_messages")
+                    .select {
+                        filter {
+                            isIn("sender_id", listOf(userId, otherUserId))
+                            isIn("receiver_id", listOf(userId, otherUserId))
+                        }
+                        order("created_at", Order.ASCENDING)
                     }
-                    order("created_at", Order.ASCENDING)
+                    .decodeList<DirectMessage>()
+
+                // Filter further in-memory just to be strictly sure it's between these two
+                val filtered = result.filter {
+                    (it.senderId == userId && it.receiverId == otherUserId) ||
+                    (it.senderId == otherUserId && it.receiverId == userId)
                 }
-                .decodeList<DirectMessage>()
-            
-            // Filter further in-memory just to be strictly sure it's between these two
-            val filtered = result.filter { 
-                (it.senderId == userId && it.receiverId == otherUserId) || 
-                (it.senderId == otherUserId && it.receiverId == userId) 
+                emit(filtered)
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
+                e.printStackTrace()
+                emit(emptyList())
             }
-            emit(filtered)
-        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
-            e.printStackTrace()
-            emit(emptyList())
+            delay(pollIntervalMs)
         }
     }
 
-    /** Get all distinct conversation partners for a user. */
-    fun getConversationPartners(userId: String): Flow<List<DirectMessage>> = flow {
-        try {
-            // Get all messages involving this user
-            val sentMessages = client.from("direct_messages")
-                .select { filter { eq("sender_id", userId) }; order("created_at", Order.DESCENDING) }
-                .decodeList<DirectMessage>()
-            val receivedMessages = client.from("direct_messages")
-                .select { filter { eq("receiver_id", userId) }; order("created_at", Order.DESCENDING) }
-                .decodeList<DirectMessage>()
-            // Combine and emit (UI will deduplicate by partner)
-            val combined = (sentMessages + receivedMessages)
-                .sortedByDescending { it.createdAt }
-            emit(combined)
-        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
-            e.printStackTrace()
-            emit(emptyList())
+    /**
+     * Get all distinct conversation partners for a user.
+     * Polls every [pollIntervalMs] for auto-refresh.
+     */
+    fun getConversationPartners(userId: String, pollIntervalMs: Long = 3_000L): Flow<List<DirectMessage>> = flow {
+        while (true) {
+            try {
+                val sentMessages = client.from("direct_messages")
+                    .select { filter { eq("sender_id", userId) }; order("created_at", Order.DESCENDING) }
+                    .decodeList<DirectMessage>()
+                val receivedMessages = client.from("direct_messages")
+                    .select { filter { eq("receiver_id", userId) }; order("created_at", Order.DESCENDING) }
+                    .decodeList<DirectMessage>()
+                val combined = (sentMessages + receivedMessages)
+                    .sortedByDescending { it.createdAt }
+                emit(combined)
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
+                e.printStackTrace()
+                emit(emptyList())
+            }
+            delay(pollIntervalMs)
         }
     }
 
@@ -99,19 +109,25 @@ class MessageRepository {
 
     // ── Class Group Messaging ─────────────────────────────────────────────────
 
-    /** Get messages for a class group */
-    fun getClassMessages(classId: String): Flow<List<com.must.connect.data.model.ClassMessage>> = flow {
-        try {
-            val result = client.from("class_messages")
-                .select {
-                    filter { eq("class_id", classId) }
-                    order("created_at", Order.ASCENDING)
-                }
-                .decodeList<com.must.connect.data.model.ClassMessage>()
-            emit(result)
-        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
-            e.printStackTrace()
-            emit(emptyList())
+    /**
+     * Get messages for a class group.
+     * Polls every [pollIntervalMs] for auto-refresh.
+     */
+    fun getClassMessages(classId: String, pollIntervalMs: Long = 5_000L): Flow<List<com.must.connect.data.model.ClassMessage>> = flow {
+        while (true) {
+            try {
+                val result = client.from("class_messages")
+                    .select {
+                        filter { eq("class_id", classId) }
+                        order("created_at", Order.ASCENDING)
+                    }
+                    .decodeList<com.must.connect.data.model.ClassMessage>()
+                emit(result)
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
+                e.printStackTrace()
+                emit(emptyList())
+            }
+            delay(pollIntervalMs)
         }
     }
 
@@ -127,6 +143,27 @@ class MessageRepository {
             Result.success(Unit)
         } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
             Result.failure(e)
+        }
+    }
+
+    /** Get total unread messages count for a user */
+    fun getUnreadMessageCount(userId: String, pollIntervalMs: Long = 10_000L): Flow<Int> = flow {
+        while (true) {
+            try {
+                val count = client.from("direct_messages")
+                    .select {
+                        filter {
+                            eq("receiver_id", userId)
+                            eq("is_read", false)
+                        }
+                    }
+                    .decodeList<DirectMessage>()
+                    .size
+                emit(count)
+            } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
+                emit(0)
+            }
+            delay(pollIntervalMs)
         }
     }
 }

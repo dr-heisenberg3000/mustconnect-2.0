@@ -4,6 +4,7 @@ import com.must.connect.data.model.GeneralFeedPost
 import com.must.connect.data.remote.SupabaseClientProvider
 import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import io.github.jan.supabase.storage.storage
@@ -18,18 +19,26 @@ class FeedRepository {
 
     private val client = SupabaseClientProvider.client
 
-    /** Fetches all general feed posts ordered by pinned first, then newest. */
-    fun getGeneralFeedPosts(): Flow<List<GeneralFeedPost>> = flow {
-        try {
-            val result = client.from("general_feed_posts")
-                .select {
-                    order("pinned", Order.DESCENDING)
-                    order("created_at", Order.DESCENDING)
-                }.decodeList<GeneralFeedPost>()
-            emit(result)
-        } catch (e: Exception) { if (e is kotlinx.coroutines.CancellationException) throw e
-            e.printStackTrace()
-            emit(emptyList())
+    /**
+     * Fetches all general feed posts ordered by pinned first, then newest.
+     * Polls every [pollIntervalMs] milliseconds so the UI auto-refreshes
+     * without requiring a Supabase Realtime subscription.
+     */
+    fun getGeneralFeedPosts(pollIntervalMs: Long = 15_000L): Flow<List<GeneralFeedPost>> = flow {
+        while (true) {
+            try {
+                val result = client.from("general_feed_posts")
+                    .select {
+                        order("pinned", Order.DESCENDING)
+                        order("created_at", Order.DESCENDING)
+                    }.decodeList<GeneralFeedPost>()
+                emit(result)
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                e.printStackTrace()
+                emit(emptyList())
+            }
+            delay(pollIntervalMs)
         }
     }
 
@@ -48,7 +57,7 @@ class FeedRepository {
     ): Result<Unit> {
         return try {
             var finalUrl: String? = null
-            
+
             if (attachmentBytes != null && attachmentName != null) {
                 val bucket = client.storage.from("announcements")
                 val uniqueName = "${java.util.UUID.randomUUID()}_$attachmentName"

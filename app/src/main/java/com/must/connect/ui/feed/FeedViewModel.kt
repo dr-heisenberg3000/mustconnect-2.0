@@ -17,6 +17,7 @@ data class FeedState(
     val authors    : Map<String, com.must.connect.data.model.UserProfile> = emptyMap(),
     val isLoading  : Boolean               = false,
     val error      : String?               = null,
+    val searchQuery: String                = "",
 )
 
 class FeedViewModel(
@@ -55,6 +56,10 @@ class FeedViewModel(
                 )
             }
         }
+    }
+
+    fun updateSearchQuery(query: String) {
+        _uiState.value = _uiState.value.copy(searchQuery = query)
     }
 
     /**

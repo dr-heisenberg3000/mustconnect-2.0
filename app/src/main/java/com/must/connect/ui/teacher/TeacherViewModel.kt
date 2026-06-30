@@ -21,6 +21,10 @@ data class TeacherUiState(
     val myClasses       : List<ClassGroup>   = emptyList(),
     val selectedClassId : String?            = null,
     val classPosts      : List<ClassPost>    = emptyList(),
+    val postAuthors     : Map<String, com.must.connect.data.model.UserProfile> = emptyMap(),
+    val classSearchQuery: String             = "",
+    val unreadDmCount   : Int                = 0,
+    val newPostCount    : Int                = 0,
     val classMembers    : List<StudentProfile> = emptyList(),
     val isLoading       : Boolean            = false,
     val feedbackMessage : String?            = null,
@@ -43,6 +47,7 @@ class TeacherViewModel : ViewModel() {
     private val authRepository  = AuthRepository.getInstance()
     private val classRepository = ClassRepository()
     private val userRepository  = UserRepository()
+    private val messageRepository = com.must.connect.data.repository.MessageRepository()
 
     private val _uiState = MutableStateFlow(TeacherUiState())
     val uiState: StateFlow<TeacherUiState> = _uiState.asStateFlow()
@@ -70,6 +75,11 @@ class TeacherViewModel : ViewModel() {
                 _uiState.update { it.copy(myClasses = classes, isLoading = false) }
             }
         }
+        viewModelScope.launch {
+            messageRepository.getUnreadMessageCount(profile.userId).collect { count ->
+                _uiState.update { it.copy(unreadDmCount = count) }
+            }
+        }
     }
 
     fun selectClass(classId: String?) {
@@ -85,9 +95,21 @@ class TeacherViewModel : ViewModel() {
     private fun loadClassPosts(classId: String) {
         viewModelScope.launch {
             classRepository.getClassPosts(classId).collect { posts ->
-                _uiState.update { it.copy(classPosts = posts) }
+                val authorIds = posts.map { it.authorId }.distinct()
+                val newAuthors = _uiState.value.postAuthors.toMutableMap()
+                authorIds.forEach { aid ->
+                    if (!newAuthors.containsKey(aid)) {
+                        val profile = userRepository.getTeacherByUserId(aid)
+                        if (profile != null) newAuthors[aid] = profile
+                    }
+                }
+                _uiState.update { it.copy(classPosts = posts, postAuthors = newAuthors) }
             }
         }
+    }
+
+    fun updateClassSearchQuery(query: String) {
+        _uiState.update { it.copy(classSearchQuery = query) }
     }
 
     private fun loadClassMembers(classId: String) {
